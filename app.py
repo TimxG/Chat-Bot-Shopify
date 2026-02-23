@@ -547,23 +547,82 @@ def chat_api():
 
         sentiment = entities.get("sentiment", {"mood": "neutral", "about": None, "intensity": "low"})
 
-        # STEP 2: Deterministic DB query
-        product_context, raw_products = query_db_with_entities(entities)
+        # STEP 2: Use Shopify products if sent by widget, else fall back to MongoDB
+        shopify_products = data.get("shopify_products_summary", [])
 
-        # STEP 3: Build product cards (MAX 2)
+        product_context = ""
+        raw_products = []
         product_cards = []
         product_cards_intro = None
-        
-        if raw_products and entities.get("intent") in ("product_search", "stock_check", "price_check"):
-            product_cards = build_product_cards(raw_products)
-            
-            if product_cards:
-                intro_map = {
-                    "product_search": "Here are our most popular products:",
-                    "stock_check": "Here's what we have in stock:",
-                    "price_check": "Here are some options within your budget:"
-                }
-                product_cards_intro = intro_map.get(entities.get("intent"), "Here are our recommendations:")
+
+        if shopify_products:
+            keyword   = (entities.get("product") or "").lower()
+            gender    = (entities.get("gender") or "").lower()
+            price_max = entities.get("price_max")
+
+            matched = []
+            for p in shopify_products:
+                name  = (p.get("name") or "").lower()
+                tags  = " ".join(p.get("tags") or []).lower()
+                ptype = (p.get("type") or "").lower()
+                price = p.get("price", 0)
+                if keyword and not any(keyword in f for f in [name, tags, ptype]):
+                    continue
+                if price_max and price > price_max:
+                    continue
+                if gender:
+                    combined = name + " " + tags
+                    if gender in ["men", "male", "man"] and not any(w in combined for w in ["men", "male", "man", "him", "his"]):
+                        continue
+                    if gender in ["women", "female", "woman"] and not any(w in combined for w in ["women", "female", "woman", "her", "ladies"]):
+                        continue
+                matched.append(p)
+
+            display = matched if matched else (shopify_products if not keyword else [])
+
+            if display:
+                lines = []
+                for p in display[:8]:
+                    currency = p.get("currency", "LKR")
+                    price    = p.get("price", 0)
+                    tags_str = ", ".join(p.get("tags") or [])
+                    lines.append(
+                        f"• {p['name']}
+"
+                        f"  Type: {p.get('type', 'N/A')}
+"
+                        f"  Price: {currency} {price:,.0f}
+"
+                        f"  Tags: {tags_str or 'N/A'}"
+                    )
+                product_context = "SHOPIFY PRODUCTS AVAILABLE IN STORE:
+" + "
+
+".join(lines)
+
+                if entities.get("intent") in ("product_search", "stock_check", "price_check") or keyword:
+                    for p in display[:2]:
+                        product_cards.append({"productId": p.get("id"), "name": p.get("name")})
+                    if product_cards:
+                        intro_map = {
+                            "product_search": "Here are some products from our store:",
+                            "stock_check":    "Here's what we have available:",
+                            "price_check":    "Here are some options within your budget:",
+                        }
+                        product_cards_intro = intro_map.get(entities.get("intent"), "Here are our recommendations:")
+            else:
+                product_context = "No Shopify products matched the customer's criteria."
+        else:
+            product_context, raw_products = query_db_with_entities(entities)
+            if raw_products and entities.get("intent") in ("product_search", "stock_check", "price_check"):
+                product_cards = build_product_cards(raw_products)
+                if product_cards:
+                    intro_map = {
+                        "product_search": "Here are our most popular products:",
+                        "stock_check":    "Here's what we have in stock:",
+                        "price_check":    "Here are some options within your budget:"
+                    }
+                    product_cards_intro = intro_map.get(entities.get("intent"), "Here are our recommendations:")
 
         # STEP 3.5: Check for food intent and fetch nearby restaurants
         restaurant_context = ""

@@ -586,19 +586,12 @@ def chat_api():
                     currency = p.get("currency", "LKR")
                     price    = p.get("price", 0)
                     tags_str = ", ".join(p.get("tags") or [])
-                    lines.append(
-                        f"• {p['name']}
-"
-                        f"  Type: {p.get('type', 'N/A')}
-"
-                        f"  Price: {currency} {price:,.0f}
-"
-                        f"  Tags: {tags_str or 'N/A'}"
-                    )
-                product_context = "SHOPIFY PRODUCTS AVAILABLE IN STORE:
-" + "
-
-".join(lines)
+                    line = "\u2022 " + p["name"] + "\n"
+                    line += "  Type: " + p.get("type", "N/A") + "\n"
+                    line += "  Price: " + currency + " " + "{:,.0f}".format(price) + "\n"
+                    line += "  Tags: " + (tags_str or "N/A")
+                    lines.append(line)
+                product_context = "SHOPIFY PRODUCTS AVAILABLE IN STORE:\n" + "\n\n".join(lines)
 
                 if entities.get("intent") in ("product_search", "stock_check", "price_check") or keyword:
                     for p in display[:2]:
